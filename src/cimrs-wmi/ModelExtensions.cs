@@ -21,21 +21,40 @@ public static class ModelExtensions
     }
 
     public static Models.CimClass ToModel(this CimClass cimClass)
-    {
-        var classModel = new Models.CimClass
+        => new()
         {
             Kind = "class",
             Namespace = cimClass.CimSystemProperties.Namespace,
             Name = cimClass.CimSystemProperties.ClassName,
             SuperClassName = cimClass.CimSuperClassName,
             Self = "",
-            //Properties = cimClass.CimClassProperties.ToDictionary(p => p.Name, p => p.Value),
+            Properties = cimClass.CimClassProperties.ToDictionary(p => p.Name, ToModel),
+            Methods = cimClass.CimClassMethods.ToDictionary(p => p.Name, ToModel),
         };
 
-        return classModel;
-    }
+    private static Models.CimPropertyDefinition ToModel(CimPropertyDeclaration property)
+        => new()
+        {
+            Type = property.CimType.ToString(),
+            ClassName = property.ReferenceClassName,
+            DefaultValue = property.Value,
+            Qualifiers = property.Qualifiers.ToDictionary(q => q.Name, ToModel),
+        };
 
-    public static string GetSelf(this CimInstance cimInstance, object id)
+    private static Models.CimMethodDefinition ToModel(CimMethodDeclaration method)
+        => new()
+        {
+            Type = method.ReturnType.ToString(),
+            Qualifiers = method.Qualifiers.ToDictionary(q => q.Name, ToModel),
+        };
+
+    private static Models.CimQualifier ToModel(CimQualifier qualifier)
+        => new()
+        {
+            Value = qualifier.Value,
+        };
+
+    private static string GetSelf(this CimInstance cimInstance, object id)
     {
         var keyProperties = cimInstance.CimInstanceProperties.Where(p => p.Flags.HasFlag(CimFlags.Key));
         var instanceId = string.Join(',', keyProperties.Select(p => p.Name + "=" + p.Value));

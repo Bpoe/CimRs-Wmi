@@ -20,6 +20,8 @@ public class CimClass
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IDictionary<string, CimPropertyDefinition>? Properties { get; set; }
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IDictionary<string, CimMethodDefinition>? Methods { get; set; }
 
     //"methods": {
     //    "methodName": {
