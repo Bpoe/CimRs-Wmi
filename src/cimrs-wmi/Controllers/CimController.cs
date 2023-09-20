@@ -1,9 +1,7 @@
 namespace CimRs.Wmi.Controllers;
 
-using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Management.Infrastructure;
-using System.Text.Json;
 
 [ApiController]
 [Route(CimController.Prefix)]
