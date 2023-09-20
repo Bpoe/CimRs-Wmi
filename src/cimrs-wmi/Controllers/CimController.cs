@@ -19,10 +19,19 @@ public class CimController : ControllerBase, IDisposable
         .Select(ModelExtensions.ToModel);
 
     [HttpGet("{cimNamespace}/classes/{cimClass}")]
-    public Models.CimClass GetClass(string cimNamespace, string cimClass)
-        => this.cimSession
-            .GetClass(Uri.UnescapeDataString(cimNamespace), cimClass)
-            .ToModel();
+    public ActionResult<Models.CimClass> GetClass(string cimNamespace, string cimClass)
+    {
+        try
+        {
+            return this.Ok(this.cimSession
+                .GetClass(Uri.UnescapeDataString(cimNamespace), cimClass)
+                .ToModel());
+        }
+        catch (CimException ex) when (ex.MessageId == "HRESULT 0x80041002")
+        {
+            return this.NotFound();
+        }
+    }
 
     [HttpGet("{cimNamespace}/classes/{cimClass}/instances")]
     public IEnumerable<CimResource> EnumerateInstances(string cimNamespace, string cimClass)
@@ -107,6 +116,29 @@ public class CimController : ControllerBase, IDisposable
 
         return this.Ok(createdInstance.ToModel());
     }
+
+    [HttpDelete("{cimNamespace}/classes/{cimClassName}/instances/{id}")]
+    public ActionResult<CimResource> DeleteInstance(string cimNamespace, string cimClassName, string id)
+    {
+        var keys = GetKeys(id);
+        using var instanceId = this.GetCimInstanceId(Uri.UnescapeDataString(cimNamespace), cimClassName, keys);
+
+        CimInstance? existingInstance;
+        try
+        {
+            existingInstance = this.cimSession
+                .GetInstance(instanceId.CimSystemProperties.Namespace, instanceId);
+        }
+        catch (CimException ex) when (ex.MessageId == "HRESULT 0x80041002")
+        {
+            return this.NotFound();
+        }
+
+        this.cimSession.DeleteInstance(existingInstance);
+
+        return this.NoContent();
+    }
+
 
     public void Dispose()
     {
