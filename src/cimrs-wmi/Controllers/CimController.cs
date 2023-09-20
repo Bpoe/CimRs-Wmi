@@ -1,5 +1,6 @@
 namespace CimRs.Wmi.Controllers;
 
+using CimRs.Wmi.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Management.Infrastructure;
 
@@ -13,10 +14,19 @@ public class CimController : ControllerBase, IDisposable
     private bool disposedValue;
 
     [HttpGet("{cimNamespace}/classes")]
-    public IEnumerable<Models.CimClass> EnumerateClasses(string cimNamespace)
-    => this.cimSession
-        .EnumerateClasses(Uri.UnescapeDataString(cimNamespace))
-        .Select(ModelExtensions.ToModel);
+    public ActionResult<CimClassCollection> EnumerateClasses(string cimNamespace)
+    {
+        var response = new CimClassCollection
+        {
+            Self = $"{CimController.Prefix}/{cimNamespace}/classes",
+            Classes = this.cimSession
+                .EnumerateClasses(Uri.UnescapeDataString(cimNamespace))
+                .Select(ModelExtensions.ToModel)
+                .ToList(),
+        };
+
+        return this.Ok(response);
+    }
 
     [HttpGet("{cimNamespace}/classes/{cimClass}")]
     public ActionResult<Models.CimClass> GetClass(string cimNamespace, string cimClass)
@@ -34,10 +44,19 @@ public class CimController : ControllerBase, IDisposable
     }
 
     [HttpGet("{cimNamespace}/classes/{cimClass}/instances")]
-    public IEnumerable<CimResource> EnumerateInstances(string cimNamespace, string cimClass)
-        => this.cimSession
-            .EnumerateInstances(Uri.UnescapeDataString(cimNamespace), cimClass)
-            .Select(ModelExtensions.ToModel);
+    public ActionResult<CimInstanceCollection> EnumerateInstances(string cimNamespace, string cimClass)
+    {
+        var response = new CimInstanceCollection
+        {
+            Self = $"{CimController.Prefix}/{cimNamespace}/classes/{cimClass}/instances",
+            instances = this.cimSession
+                .EnumerateInstances(Uri.UnescapeDataString(cimNamespace), cimClass)
+                .Select(ModelExtensions.ToModel)
+                .ToList(),
+        };
+
+        return this.Ok(response);
+    }
 
     [HttpGet("{cimNamespace}/classes/{cimClass}/instances/{id}")]
     public ActionResult<CimResource> GetInstance(string cimNamespace, string cimClass, string id)
