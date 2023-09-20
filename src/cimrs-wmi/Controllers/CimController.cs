@@ -1,7 +1,9 @@
 namespace CimRs.Wmi.Controllers;
 
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Management.Infrastructure;
+using System.Text.Json;
 
 [ApiController]
 [Route(CimController.Prefix)]
@@ -9,7 +11,7 @@ public class CimController : ControllerBase, IDisposable
 {
     public const string Prefix = "cim";
 
-    private readonly CimSession cimSession = CimSession.Create("localhost");
+    private readonly CimSession cimSession = CimSession.Create(null);
     private bool disposedValue;
 
     [HttpGet("{cimNamespace}/classes")]
@@ -31,14 +33,81 @@ public class CimController : ControllerBase, IDisposable
             .Select(ModelExtensions.ToModel);
 
     [HttpGet("{cimNamespace}/classes/{cimClass}/instances/{id}")]
-    public CimResource GetInstance(string cimNamespace, string cimClass, string id)
+    public ActionResult<CimResource> GetInstance(string cimNamespace, string cimClass, string id)
     {
         var keys = GetKeys(id);
-        using var instanceId = this.GetCimInstanceId(cimNamespace, cimClass, keys);
+        try
+        {
+            using var instanceId = this.GetCimInstanceId(Uri.UnescapeDataString(cimNamespace), cimClass, keys);
 
-        return this.cimSession
-            .GetInstance(Uri.UnescapeDataString(instanceId.CimSystemProperties.Namespace), instanceId)
-            .ToModel();
+            return this.cimSession
+                .GetInstance(Uri.UnescapeDataString(instanceId.CimSystemProperties.Namespace), instanceId)
+                .ToModel();
+        }
+        catch (CimException ex) when (ex.MessageId == "HRESULT 0x80041002")
+        {
+            return this.NotFound();
+        }
+    }
+
+    [HttpPut("{cimNamespace}/classes/{cimClassName}/instances/{id}")]
+    public ActionResult<CimResource> PutInstance(string cimNamespace, string cimClassName, string id, [FromBody] CimResource resource)
+    {
+        var keys = GetKeys(id);
+        using var instanceId = this.GetCimInstanceId(Uri.UnescapeDataString(cimNamespace), cimClassName, keys);
+
+        CimInstance? existingInstance;
+        try
+        {
+            existingInstance = this.cimSession
+                .GetInstance(instanceId.CimSystemProperties.Namespace, instanceId);
+        }
+        catch (CimException ex) when (ex.MessageId == "HRESULT 0x80041002")
+        {
+            existingInstance = null;
+        }
+
+        if (existingInstance is not null)
+        {
+            foreach (var p in resource.Properties)
+            {
+                if (existingInstance.CimInstanceProperties[p.Key].Flags.HasFlag(CimFlags.Key)
+                    || existingInstance.CimInstanceProperties[p.Key].Flags.HasFlag(CimFlags.ReadOnly))
+                {
+                    continue;
+                }
+
+                var json = p.Value?.ToString();
+                existingInstance.CimInstanceProperties[p.Key].Value = json is null
+                    ? null
+                    : existingInstance.CimClass.CimClassProperties[p.Key].CimType.FromString(json);
+            }
+
+            this.cimSession.ModifyInstance(existingInstance);
+
+            return this.Ok(existingInstance.ToModel());
+        }
+
+        var cimClassProperties = this.cimSession.GetClass(Uri.UnescapeDataString(cimNamespace), cimClassName).CimClassProperties;
+
+        foreach (var p in resource.Properties)
+        {
+            if (instanceId.CimInstanceProperties.Any(prop => prop.Name == p.Key))
+            {
+                continue;
+            }
+
+            var json = p.Value?.ToString();
+            instanceId.CimInstanceProperties.Add(
+                CimProperty.Create(
+                    p.Key,
+                    cimClassProperties[p.Key].CimType.FromString(json),
+                    CimFlags.None));
+        }
+
+        var createdInstance = this.cimSession.CreateInstance(Uri.UnescapeDataString(cimNamespace), instanceId);
+
+        return this.Ok(createdInstance.ToModel());
     }
 
     public void Dispose()
@@ -70,21 +139,18 @@ public class CimController : ControllerBase, IDisposable
                 k => k.Split('=')[1]);
     }
 
-    private CimInstance GetCimInstanceId(string cimNamespace, string cimClass, IDictionary<string, string> keys)
+    private CimInstance GetCimInstanceId(string cimNamespace, string cimClassName, IDictionary<string, string> keys)
     {
-        var classProperties = this.cimSession
-            .GetClass(Uri.UnescapeDataString(cimNamespace), cimClass)
-            .CimClassProperties;
+        var cimClassProperties = this.cimSession.GetClass(cimNamespace, cimClassName).CimClassProperties;
 
-        var instanceId = new CimInstance(cimClass, cimNamespace);
+        var instanceId = new CimInstance(cimClassName, cimNamespace);
         foreach (var key in keys)
         {
-            var property = CimProperty.Create(
-                key.Key,
-                classProperties[key.Key].CimType.FromString(key.Value),
-                CimFlags.Key);
-
-            instanceId.CimInstanceProperties.Add(property);
+            instanceId.CimInstanceProperties.Add(
+                CimProperty.Create(
+                    key.Key,
+                    cimClassProperties[key.Key].CimType.FromString(key.Value),
+                    CimFlags.Key));
         }
 
         return instanceId;
